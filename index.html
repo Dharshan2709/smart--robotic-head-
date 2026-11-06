@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A project article describing a voice-controlled pan-tilt robot head built with ESP32, OLED display and cloud speech services.">
+  <title>Voice-Controlled Pan-Tilt Robot Head | Engineering Journal</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-strip">
+    <div class="container top-inner">
+      <span>ENGINEERING PROJECT JOURNAL</span>
+      <span>BAECE339 · FALL 2026–2027</span>
+    </div>
+  </div>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#home" aria-label="Engineering Journal home">
+        <span class="brand-mark">EJ</span>
+        <span><strong>Engineering Journal</strong><small>Student Research & Project Reports</small></span>
+      </a>
+      <button class="menu-toggle" id="menuToggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+      <nav id="mainNav" aria-label="Main navigation">
+        <a href="#abstract">Abstract</a>
+        <a href="#methodology">Methodology</a>
+        <a href="#results">Results</a>
+        <a href="#conclusion">Conclusion</a>
+        <a href="#references">References</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="home">
+    <section class="hero">
+      <div class="container hero-content">
+        <div class="eyebrow"><span class="dot"></span> COURSE PROJECT · FUNDAMENTALS OF ROBOTICS AND AUTOMATION</div>
+        <h1>A Voice-Controlled Pan-Tilt Robot Head with an OLED Face, Built on the ESP32 and Cloud Speech Services</h1>
+        <p class="hero-subtitle">A desktop conversational robot that combines local motion control, speech detection and cloud-based voice interaction.</p>
+        <div class="author-line">
+          <div><strong>Dharshan S</strong><span>25BEC0551</span></div>
+          <div class="author-divider"></div>
+          <div><strong>Karan N</strong><span>25BEC0550</span></div>
+        </div>
+        <div class="hero-meta">
+          <span>School of Electronics Engineering</span>
+          <span>Course code: BAECE339</span>
+          <span>Academic year: 2026–2027</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="container page-layout">
+      <article class="article">
+        <section class="article-section" id="abstract">
+          <div class="section-kicker">01 / OVERVIEW</div>
+          <h2>Abstract</h2>
+          <p>Talking to a robot is natural, but recognizing speech and understanding language normally need much more computing power than a small microcontroller offers. This project builds a desktop robot called <strong>Sydney</strong> that gets around the problem by splitting the work in two. An ESP32 board handles the physical side. It listens through an INMP441 microphone, decides when a person has started and stopped speaking, moves a two-servo pan-tilt neck, draws a face on a 0.96-inch OLED, and plays sound through a MAX98357 amplifier and a 4-ohm speaker.</p>
+          <p>The language side runs on Groq's cloud services, which turn the recorded speech into text with Whisper, write a short answer with a chat model, and convert that answer back into speech. Simple spoken commands such as “look left” or “nod” are recognized on the board and move the servos directly, so they cost no chat request. Memory was the hardest limit. With no external RAM, the recording is held to four seconds at 8 kHz and the code checks the heap before every upload. This report covers the design, the equations behind the signal processing and servo control, the faults found during testing, and the limits of the current version.</p>
+          <div class="keywords"><strong>Keywords:</strong> voice interaction, ESP32, pan-tilt servo, speech recognition, human-robot interaction, I2S, embedded systems.</div>
+        </section>
+
+        <section class="article-section" id="introduction">
+          <div class="section-kicker">02 / BACKGROUND</div>
+          <h2>1. Introduction</h2>
+          <p>Voice assistants went from novelty to ordinary household equipment in about ten years. Phones, speakers and cars now take spoken requests, and libraries and schools have started to look at what they can do [11]. A robot is a different case. It has a body, so people expect it to behave like one: to turn toward them when they speak, to look where they point, and to answer in a way that fits the moment. Surveys of human-robot interaction have said for years that the quality of the interaction depends on both channels together, speech and movement [15], [16]. A robot that talks but never moves feels like a speaker. A robot that moves but cannot be spoken to feels like a toy.</p>
+          <p>Building robots that communicate socially is not a new idea. Fong et al. surveyed socially interactive robots and set out design questions that still apply, such as how much expression a robot needs and how it should read the people around it [12]. Breazeal's work on sociable robots showed that simple, readable expressions can carry a lot of meaning even when the hardware is modest [13]. Dautenhahn described the dimensions along which social intelligence in robots can be judged [14]. Eye behavior gets special attention, because where a robot looks tells people what it is attending to, and Ruhland et al. reviewed the research on gaze in virtual agents, social robots and human-computer interaction [17]. These papers shaped two choices in this project: a face drawn on a small screen, and eyes that glance in the direction the head turns.</p>
+          <p>Speech recognition is the first technical obstacle. Deep neural networks replaced Gaussian mixture acoustic models around 2012 [3], recurrent networks were applied directly to speech soon afterward [4], and attention-based sequence-to-sequence models later matched or beat conventional recognizers [5]. A review by Li covers how end-to-end approaches such as CTC, attention encoder-decoders and transducers developed [6]. Many recent models rest on the transformer architecture [2], and Whisper is a good example. It was trained on 680,000 hours of labeled audio collected from the web and works across accents, noise and languages without fine-tuning [1]. That robustness matters here, because the microphone is cheap and the room is never quiet.</p>
+          <p>Understanding and answering is the second obstacle. GPT-3 showed that a large language model can pick up a task from a few examples in the prompt [7], and training with human feedback made such models much better at doing what a user actually asks [8]. Smaller open models followed. The LLaMA paper reported that a 13-billion-parameter model could outperform GPT-3 on most benchmarks [9], and models in this range can now be reached through a simple web request. Language models have also started to appear inside robots. Ahn et al. used one to choose among a robot's real skills while checking what the robot was actually able to do [19]. This project takes a much simpler route. The model only writes a short spoken reply, and anything that physically moves the robot is decided by plain code on the board.</p>
+          <p>The last stage is speech output. Tacotron 2 paired a network that predicts a mel spectrogram with a neural vocoder and produced natural-sounding speech from text [10]. Neural text-to-speech has moved on since then, and the voice model used here is a newer system, but the principle of generating audio from text with a learned model is the same.</p>
+          <p>A practical voice robot also has to know when someone is talking. Sending audio to a recognizer all the time would waste bandwidth and, on a metered cloud service, money. Statistical voice activity detection, such as the likelihood-ratio method of Sohn et al. [18], is the classic answer. On a microcontroller with almost no spare memory, this project uses a much simpler rule based on short-term loudness, with a hold time so that pauses between words do not end the recording.</p>
+          <p>Most published work on these pieces assumes a laptop or a server. Fewer write-ups cover the awkward details of running the whole chain from a 38-pin ESP32 with roughly 190 KB of free heap: how much memory a TLS connection takes, where a clip is held while it uploads, and how to share the I2S hardware between a microphone and a speaker. The aim was a small, working, understandable robot head, not a new recognition method.</p>
+          <h3>Project objectives</h3>
+          <ol>
+            <li>Capture speech from an I2S microphone and detect its end automatically.</li>
+            <li>Obtain a transcript and a spoken reply from cloud services over Wi-Fi.</li>
+            <li>Recognize head commands locally and move a two-servo neck within safe limits.</li>
+            <li>Show the robot's state on an OLED.</li>
+            <li>Keep all of this reliable inside the memory of the ESP32.</li>
+          </ol>
+        </section>
+
+        <section class="article-section" id="methodology">
+          <div class="section-kicker">03 / DESIGN AND IMPLEMENTATION</div>
+          <h2>2. Proposed Methodology</h2>
+          <h3>2.1 System overview</h3>
+          <p>The ESP32 sits in the middle and talks to everything else. Sound comes in from the microphone, is measured and recorded on the board, and goes over Wi-Fi to Groq as one audio file. The transcript that comes back is checked on the board for a movement command first. If it is one, the servos move and the cloud is not asked anything more. If it is not, the text goes to a chat model, the reply goes to a text-to-speech model, and the audio streams to the amplifier. The OLED shows what the robot is doing at each stage.</p>
+          <figure class="figure-placeholder">
+            <div class="placeholder-icon">▧</div>
+            <strong>Figure 1. Block diagram of the system</strong>
+            <p>Insert the block diagram or a photograph of the system here.</p>
+            <span>Suggested flow: Microphone → ESP32 → Groq speech-to-text → command check → servos OR chat → speech → amplifier/speaker</span>
+          </figure>
+          <p class="flow-line">Microphone → ESP32 (level detection, recording) → Groq speech-to-text → command check → servos, or Groq chat → Groq speech → amplifier and speaker, with the OLED showing the state throughout.</p>
+
+          <h3>Table 1. Hardware blocks and pin assignment</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Block</th><th>Part</th><th>Interface</th><th>ESP32 pins</th></tr></thead>
+            <tbody>
+              <tr><td>Controller</td><td>ESP32 DevKit (ESP32-D0WD-V3), 240 MHz dual core, 520 KB SRAM, Wi-Fi</td><td>—</td><td>—</td></tr>
+              <tr><td>Microphone</td><td>INMP441 MEMS, L/R pin to GND</td><td>I2S receive, port 0</td><td>SCK 33, WS 25, SD 32</td></tr>
+              <tr><td>Amplifier and speaker</td><td>MAX98357 with 4-ohm speaker</td><td>I2S transmit, port 1</td><td>BCLK 26, LRC 27, DIN 22</td></tr>
+              <tr><td>Pan servo (left/right)</td><td>SG90</td><td>PWM, 50 Hz</td><td>GPIO 18</td></tr>
+              <tr><td>Tilt servo (up/down)</td><td>SG90</td><td>PWM, 50 Hz</td><td>GPIO 19</td></tr>
+              <tr><td>Display</td><td>SSD1306 128×64 OLED</td><td>I2C, 400 kHz</td><td>SDA 21, SCL 23</td></tr>
+            </tbody>
+          </table></div>
+          <p>The servos have their own regulated 5 V supply with the ground tied to the ESP32 ground. An SG90 can pull a sharp current spike when it starts to move, and on a USB-powered board that is enough to reset the processor. The two I2S ports are kept separate, port 0 for the microphone and port 1 for the amplifier, so recording and playback never share a clock. In both configurations the master-clock pin is set to “no change”. Without that, the driver may route a clock to GPIO 0, which the ESP32 uses to choose its boot mode.</p>
+
+          <h3>2.2 Sound level measurement</h3>
+          <p>The INMP441 delivers 24-bit samples inside 32-bit words at 16 kHz. Each raw word <em>r</em> is shifted right by 14 bits to bring it into 16-bit range, and a slow running average removes the DC offset the microphone adds:</p>
+          <div class="equation"><span>x(n) = r(n) &gt;&gt; 14</span><small>(1)</small></div>
+          <div class="equation"><span>DC(n) = DC(n−1) + α [x(n) − DC(n−1)], &nbsp; α = 1/512</span><small>(2)</small></div>
+          <div class="equation"><span>s(n) = x(n) − DC(n)</span><small>(3)</small></div>
+          <p>Samples are handled in blocks of N = 512, which is 32 ms of audio. The loudness of a block is its root-mean-square value:</p>
+          <div class="equation"><span>RMS = √[(1/N) Σ s(n)²], &nbsp; n = 1 … N</span><small>(4)</small></div>
+
+          <h3>2.3 Detecting the start and end of speech</h3>
+          <p>The rule uses two thresholds on purpose. Speech starts when the block RMS is at least 800 for four blocks in a row, about 128 ms. A rolling buffer of 4096 samples (256 ms) is always filling, so the first syllable, which usually comes before the threshold is crossed, is kept. Speech ends when the RMS stays below 450 for 1.2 s. A lower value for ending than for starting stops the recording from chopping itself in the quiet gaps between words:</p>
+          <div class="equation"><span>Start: RMS ≥ 800 for 4 consecutive blocks; End: RMS &lt; 450 for t ≥ 1.2 s</span><small>(5)</small></div>
+          <p>Once the end is found, the silence at the tail is trimmed to 0.3 s. If fewer than 10 blocks (about 0.32 s) were above 450, the clip is treated as noise and thrown away, and no network request is made.</p>
+
+          <h3>2.4 Fitting the clip into memory</h3>
+          <p>The board has no PSRAM, so the clip has to fit in internal RAM next to a TLS connection. Before storing, the audio is reduced from 16 kHz to 8 kHz by averaging each pair of samples:</p>
+          <div class="equation"><span>y(k) = [s(2k) + s(2k+1)] / 2</span><small>(6)</small></div>
+          <p>The buffer for a maximum of T = 4 s is then:</p>
+          <div class="equation"><span>B = f × T × 2 bytes = 8000 × 4 × 2 = 64,000 bytes</span><small>(7)</small></div>
+          <p>The buffer is kept only if enough contiguous heap is left for the secure connection that follows. With M the largest free block after the allocation:</p>
+          <div class="equation"><span>M ≥ 40,000 bytes</span><small>(8)</small></div>
+          <p>If the test fails, the code tries shorter buffers, down to 2 s.</p>
+
+          <h3>2.5 Cloud pipeline</h3>
+          <p>The clip is wrapped in a 44-byte WAV header and sent to Groq's Whisper model as a multipart upload. The upload is streamed straight out of the clip buffer, so there is no second copy in RAM, and the buffer is freed as soon as the transcript arrives. The text then goes to a chat model with an instruction to answer in at most two short sentences of plain text. The code holds an ordered list of chat models and moves to the next one if the account has no access to the current one, remembering whichever works.</p>
+          <p>The reply goes to a text-to-speech model that returns a WAV file. The board reads the WAV header to learn the sample rate, sets the speaker clock to match, and plays the audio while it is still downloading, copying each mono sample to both channels. Long answers are split at sentence ends into pieces of at most 190 characters. One secure connection is reused for transcription, chat and speech, and it is closed when the conversation ends. The microphone is paused during playback so the robot does not hear itself.</p>
+
+          <h3>2.6 Local command recognition</h3>
+          <p>The transcript is converted to lowercase letters and single spaces. Let V = 1 if it contains a motion word (turn, look, move, tilt, head, face, go, rotate, glance, raise, lower, lift, center, centre or straight). A direction word w triggers an action only when V = 1:</p>
+          <div class="equation"><span>action(w) = V ∧ (w ∈ {left, right, up, down, upward, downward, center, centre, straight, forward, front, ahead})</span><small>(9)</small></div>
+          <p>The words nod, shake and around trigger their own motions without V. Commands run in the order spoken, so “look left then look up” does both. If at least one command ran, the transcript is not sent to the chat model.</p>
+
+          <h3>2.7 Pan-tilt control</h3>
+          <p>Each SG90 is driven with a 50 Hz signal from the ESP32's LEDC timer at 14-bit resolution. The pulse width for an angle θ and the matching duty value are:</p>
+          <div class="equation"><span>t(θ) = 500 + (2400 − 500) × θ / 180 µs</span><small>(10)</small></div>
+          <div class="equation"><span>duty = t(θ) × (2¹⁴ − 1) / 20,000</span><small>(11)</small></div>
+          <p>At θ = 90° this gives 1450 µs and a duty of 1187 out of 16383. A new target is always clamped to the limits in Table 2:</p>
+          <div class="equation"><span>θnew = min(max(θ + s·Δ, θmin), θmax)</span><small>(12)</small></div>
+          <p>Here Δ is the step and s is a sign constant, +1 or −1, that is flipped in the code if a servo turns the wrong way. The head moves one degree every 12 ms, about 83° per second, so a move of Δθ degrees takes:</p>
+          <div class="equation"><span>T = Δθ × 12 ms</span><small>(13)</small></div>
+          <h3>Table 2. Servo limits and step sizes</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Axis</th><th>Center</th><th>Minimum</th><th>Maximum</th><th>Step per command</th></tr></thead>
+            <tbody>
+              <tr><td>Pan (left/right)</td><td>90°</td><td>20°</td><td>160°</td><td>40°</td></tr>
+              <tr><td>Tilt (up/down)</td><td>90°</td><td>60°</td><td>120°</td><td>20°</td></tr>
+            </tbody>
+          </table></div>
+          <p>Three compound motions are built from the same function. A nod tilts down 15° and up 10°, twice, and returns. A shake swings the pan 25° each way, twice. “Look around” sweeps to the right limit, then the left limit, then back to center with a 0.3 s pause at each end. After any move the robot says a short confirmation.</p>
+
+          <h3>2.8 OLED face</h3>
+          <p>The screen has a separate picture for each state: sleepy eyes with moving dots while waiting, a microphone with live sound bars while listening, a thought bubble while the cloud works, and a pair of eyes that glance left, right, up or down during a head command. While answering, the code looks for keywords in the question and then in the reply and picks one of eleven icons (sun, cloud, rain, moon, music, heart, clock, star, light bulb, sad face, question mark). If nothing matches, a smiley appears whose mouth opens when the mean absolute value of the audio being played is above 600, checked about every 150 ms. Everything is drawn with line, circle and rectangle commands, so no image files are stored. If the display is missing, the rest of the program still runs.</p>
+
+          <h3>2.9 Main algorithm</h3>
+          <p><strong>Algorithm 1. Pseudo code of the main loop</strong></p>
+          <ol class="algorithm">
+            <li>Input: microphone blocks, Wi-Fi, API key.</li>
+            <li>Output: servo motion, OLED picture or spoken reply.</li>
+            <li>Initialize OLED, Wi-Fi, both I2S ports, servos at center.</li>
+            <li>Loop forever.</li>
+            <li>Read a block of 512 samples and compute RMS (equation 4).</li>
+            <li>Store the block in the pre-roll buffer.</li>
+            <li>If RMS ≥ 800 for 4 blocks in a row, allocate the clip buffer (4 s, then shorter) and check the heap (equation 8).</li>
+            <li>Copy the pre-roll, then record and halve the sample rate until RMS &lt; 450 for 1.2 s or the buffer is full.</li>
+            <li>If fewer than 10 voiced blocks, discard the clip and continue.</li>
+            <li>Send the clip to speech-to-text, then free the buffer.</li>
+            <li>If the transcript has no real words, continue.</li>
+            <li>If a head command is found (equation 9), move the servos, confirm, and continue.</li>
+            <li>Send the text to the chat model (try the next model if refused).</li>
+            <li>Show an icon, send the reply to text-to-speech, play the stream.</li>
+            <li>Close the network connection.</li>
+            <li>Wait for 0.7 s of quiet and show the waiting screen.</li>
+            <li>End loop.</li>
+          </ol>
+        </section>
+
+        <section class="article-section" id="results">
+          <div class="section-kicker">04 / EVALUATION</div>
+          <h2>3. Results and Discussion</h2>
+          <h3>3.1 Test setup</h3>
+          <p>The robot was built as in Table 1 and programmed from the Arduino IDE with ESP32 core 3.x. Everything was watched through the Serial Monitor at 115200 baud, which prints the loudness readings, the transcript, the chat reply, the free heap and any error codes. The tests were done indoors over a Wi-Fi connection. The figures below come from those Serial logs. Where a number still has to be measured, the table cell is left empty in the report.</p>
+          <figure class="figure-placeholder">
+            <div class="placeholder-icon">▧</div>
+            <strong>Figure 2. Photograph of the assembled robot head</strong>
+            <p>Insert an actual photograph of your assembled robot head here.</p>
+          </figure>
+
+          <h3>3.2 Sound levels and thresholds</h3>
+          <p><strong>Table 3. Block RMS values seen in the Serial Monitor</strong></p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Condition</th><th>RMS values</th></tr></thead>
+            <tbody>
+              <tr><td>Quiet room</td><td>96, 129, 133, 143</td></tr>
+              <tr><td>Readings that stayed under the start threshold</td><td>516, 371, 322</td></tr>
+              <tr><td>During speech</td><td>1276, 1319, 642, 1869, 1528</td></tr>
+              <tr><td>Just after speech</td><td>81, 119</td></tr>
+            </tbody>
+          </table></div>
+          <p>The start threshold of 800 sits above everything seen outside speech, and the end threshold of 450 sits above the quiet floor and below most of the speech readings. In the logged run the recording was at 3.8 s when the second of silence passed, the end of speech was detected, and after trimming the tail the clip sent to Whisper was 3.2 s long. One weakness is visible in the table. A steady background level above 450, such as a fan, would stop the end of speech from ever being detected, and the recording would run until the buffer is full.</p>
+
+          <h3>3.3 Memory</h3>
+          <p><strong>Table 4. Heap readings and buffer sizes</strong></p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Free heap when a conversation starts</td><td>186,080 to 193,276 bytes</td></tr>
+              <tr><td>Largest free block</td><td>110,580 bytes</td></tr>
+              <tr><td>6 s buffer at 8 kHz</td><td>96,000 bytes, upload failed with HTTP error -1</td></tr>
+              <tr><td>4 s buffer at 8 kHz</td><td>64,000 bytes, leaves about 46,000 bytes by calculation</td></tr>
+              <tr><td>Largest free block after the 4 s buffer, measured</td><td><em>Not recorded in the supplied report</em></td></tr>
+            </tbody>
+          </table></div>
+          <p>The 96,000-byte buffer left too little contiguous memory for the TLS handshake, and the connection was refused before any audio left the board. Cutting the maximum to four seconds restored a margin above the 40,000-byte limit in equation 8.</p>
+
+          <h3>3.4 Problems found and how they were fixed</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Problem</th><th>Cause</th><th>Fix</th></tr></thead>
+            <tbody>
+              <tr><td>Possible clock on GPIO 0</td><td>Driver's default master-clock pin</td><td>Master-clock pin set to “no change” in both I2S setups</td></tr>
+              <tr><td>Speech request rejected</td><td>Voice model terms not yet accepted</td><td>Organization admin accepted the terms in the Groq console</td></tr>
+              <tr><td>“Model not found” from chat</td><td>Account had no access to the first model</td><td>Ordered model list and a model printout at start-up. The account's list showed GPT-OSS models but no Llama ones</td></tr>
+              <tr><td>Upload error -1</td><td>96 KB buffer left no room for TLS</td><td>4 s cap, 40 KB heap check, one retry</td></tr>
+              <tr><td>Transcript was only a full stop</td><td>The recording held no speech</td><td>A result with no letters or digits is ignored</td></tr>
+              <tr><td>Short test clip mistranscribed (“You can't get the protein”)</td><td>Two-second wake-word clip was too short and unclear</td><td>Wake-word step removed, one recording per conversation</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>3.5 Functional tests</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>No.</th><th>Spoken phrase</th><th>Expected behavior</th><th>Observed</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>“Turn left”</td><td>Pan moves 40° one way, eyes look left</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>2</td><td>“Look right”</td><td>Pan moves 40° the other way, eyes look right</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>3</td><td>“Look up”</td><td>Tilt moves 20° up, eyes look up</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>4</td><td>“Look down”</td><td>Tilt moves 20° down, eyes look down</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>5</td><td>“Look straight”</td><td>Both servos return to 90°</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>6</td><td>“Nod”</td><td>Two nods, then back to the starting tilt</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>7</td><td>“Shake your head”</td><td>Two shakes, then back to the starting pan</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>8</td><td>“Look around”</td><td>Sweep to both pan limits, then center</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>9</td><td>“That's right”</td><td>No motion, sent to the chat model</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>10</td><td>“What is the capital of France?”</td><td>No motion, spoken answer</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>11</td><td>A cough or door slam</td><td>Discarded as noise, no network request</td><td class="empty-cell">Not recorded</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>3.6 Timing</h3>
+          <p>The motion times follow from equation 13 and the move sizes in Section 2.7, and they do not include the time to write each PWM value, which is very small.</p>
+          <p><strong>Table 7. Calculated servo times</strong></p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Action</th><th>Total angle moved</th><th>Time</th></tr></thead>
+            <tbody>
+              <tr><td>Left or right</td><td>40°</td><td>0.48 s</td></tr>
+              <tr><td>Up or down</td><td>20°</td><td>0.24 s</td></tr>
+              <tr><td>Nod</td><td>100°</td><td>1.2 s</td></tr>
+              <tr><td>Shake</td><td>200°</td><td>2.4 s</td></tr>
+              <tr><td>Look around, from center</td><td>280° plus two 0.3 s pauses</td><td>About 4.0 s</td></tr>
+            </tbody>
+          </table></div>
+          <p><strong>Table 8. Network timing to be recorded</strong></p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Stage</th><th>Time (s)</th></tr></thead>
+            <tbody>
+              <tr><td>End of speech to transcript</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>Transcript to chat reply</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>Reply to first audio from the speaker</td><td class="empty-cell">Not recorded</td></tr>
+              <tr><td>Total, end of speech to start of reply</td><td class="empty-cell">Not recorded</td></tr>
+            </tbody>
+          </table></div>
+
+          <h3>3.7 Discussion</h3>
+          <p>The two thresholds work because speech in the tests sat well above the quiet floor, but they are fixed numbers. A fan, a television or a noisy corridor would raise the floor. A calibration step at start-up, or a floor that adapts over time, would be the obvious next improvement.</p>
+          <p>The four-second, 8 kHz recording is the clearest compromise. It lets the system fit in memory, but telephone-quality audio loses detail, so quiet or unclear speech is more likely to be misheard. A board with PSRAM would remove the limit.</p>
+          <p>The command parser is simple on purpose, and it has known weak spots. Because “look” counts as a motion word, a request like “look up the weather” tilts the head up and is never sent to the chat model. In the same way, “nod”, “shake” and “around” move the head even inside a longer question. A stricter rule that only accepts short sentences would fix this, at the cost of missing some natural phrasing.</p>
+          <p>From the robotics side, the neck is open-loop. A hobby servo gives no position feedback to the board, so the commanded angle is assumed, not measured, and that is why the limits are kept well inside the mechanical range. The connection to the cloud skips certificate checking to save memory, which is weaker security and would need to change before any real deployment. The robot also depends on Wi-Fi and a working account, and a free account has rate limits.</p>
+        </section>
+
+        <section class="article-section" id="conclusion">
+          <div class="section-kicker">05 / FINAL REMARKS</div>
+          <h2>4. Conclusion</h2>
+          <p>This project put a conversational head on an ESP32 by letting the board do what it is good at and handing the rest to the cloud. The microphone, loudness-based speech detection, servo control and OLED face all run on the board, while speech recognition, language and voice come from Groq. Recognizing head commands locally means a spoken “look left” moves the neck with no chat request, and the memory checks keep uploads from failing on a board with about 190 KB of free heap.</p>
+          <p>The main weaknesses are the four-second, 8 kHz recording, the fixed noise thresholds, and a keyword parser that longer sentences can fool. Future work could add a wake word, adaptive thresholds, certificate checking, a board with more memory and position feedback on the servos. The most useful lesson from the build was that memory and power, more than software logic, decided most of the design.</p>
+        </section>
+
+        <section class="article-section references" id="references">
+          <div class="section-kicker">06 / SOURCE MATERIAL</div>
+          <h2>References</h2>
+          <ol>
+            <li>A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and I. Sutskever, “Robust speech recognition via large-scale weak supervision,” in <em>Proc. 40th Int. Conf. Machine Learning (ICML)</em>, PMLR vol. 202, 2023, pp. 28492–28518.</li>
+            <li>A. Vaswani et al., “Attention is all you need,” in <em>Advances in Neural Information Processing Systems 30</em>, 2017, pp. 5998–6008.</li>
+            <li>G. Hinton et al., “Deep neural networks for acoustic modeling in speech recognition: The shared views of four research groups,” <em>IEEE Signal Processing Magazine</em>, vol. 29, no. 6, pp. 82–97, 2012.</li>
+            <li>A. Graves, A. Mohamed, and G. Hinton, “Speech recognition with deep recurrent neural networks,” in <em>Proc. IEEE ICASSP</em>, 2013, pp. 6645–6649.</li>
+            <li>C.-C. Chiu et al., “State-of-the-art speech recognition with sequence-to-sequence models,” in <em>Proc. IEEE ICASSP</em>, 2018, pp. 4774–4778.</li>
+            <li>J. Li, “Recent advances in end-to-end automatic speech recognition,” <em>APSIPA Transactions on Signal and Information Processing</em>, vol. 11, no. 1, 2022.</li>
+            <li>T. B. Brown et al., “Language models are few-shot learners,” in <em>Advances in Neural Information Processing Systems 33</em>, 2020, pp. 1877–1901.</li>
+            <li>L. Ouyang et al., “Training language models to follow instructions with human feedback,” in <em>Advances in Neural Information Processing Systems 35</em>, 2022, pp. 27730–27744.</li>
+            <li>H. Touvron et al., “LLaMA: Open and efficient foundation language models,” arXiv:2302.13971, 2023.</li>
+            <li>J. Shen et al., “Natural TTS synthesis by conditioning WaveNet on mel spectrogram predictions,” in <em>Proc. IEEE ICASSP</em>, 2018, pp. 4779–4783.</li>
+            <li>M. B. Hoy, “Alexa, Siri, Cortana, and more: An introduction to voice assistants,” <em>Medical Reference Services Quarterly</em>, vol. 37, no. 1, pp. 81–88, 2018.</li>
+            <li>T. Fong, I. Nourbakhsh, and K. Dautenhahn, “A survey of socially interactive robots,” <em>Robotics and Autonomous Systems</em>, vol. 42, no. 3–4, pp. 143–166, 2003.</li>
+            <li>C. Breazeal, “Emotion and sociable humanoid robots,” <em>International Journal of Human-Computer Studies</em>, vol. 59, no. 1–2, pp. 119–155, 2003.</li>
+            <li>K. Dautenhahn, “Socially intelligent robots: Dimensions of human-robot interaction,” <em>Philosophical Transactions of the Royal Society B</em>, vol. 362, no. 1480, pp. 679–704, 2007.</li>
+            <li>M. A. Goodrich and A. C. Schultz, “Human-robot interaction: A survey,” <em>Foundations and Trends in Human-Computer Interaction</em>, vol. 1, no. 3, pp. 203–275, 2007.</li>
+            <li>N. Mavridis, “A review of verbal and non-verbal human-robot interactive communication,” <em>Robotics and Autonomous Systems</em>, vol. 63, pp. 22–35, 2015.</li>
+            <li>K. Ruhland et al., “A review of eye gaze in virtual agents, social robotics and HCI: Behaviour generation, user interaction and perception,” <em>Computer Graphics Forum</em>, vol. 34, no. 6, pp. 299–326, 2015.</li>
+            <li>J. Sohn, N. S. Kim, and W. Sung, “A statistical model-based voice activity detection,” <em>IEEE Signal Processing Letters</em>, vol. 6, no. 1, pp. 1–3, 1999.</li>
+            <li>M. Ahn et al., “Do as I can, not as I say: Grounding language in robotic affordances,” in <em>Proc. 6th Conf. Robot Learning (CoRL)</em>, PMLR vol. 205, 2022, pp. 287–318.</li>
+          </ol>
+        </section>
+        <div class="article-end">— End of article —</div>
+      </article>
+
+      <aside class="sidebar">
+        <div class="side-card">
+          <span class="side-label">ARTICLE DETAILS</span>
+          <dl>
+            <dt>Course</dt><dd>Fundamentals of Robotics and Automation</dd>
+            <dt>Course code</dt><dd>BAECE339</dd>
+            <dt>Semester</dt><dd>Fall 2026–2027</dd>
+            <dt>Institution</dt><dd>School of Electronics Engineering</dd>
+            <dt>Authors</dt><dd>Dharshan S and Karan N</dd>
+          </dl>
+        </div>
+        <div class="side-card contents-card">
+          <span class="side-label">IN THIS ARTICLE</span>
+          <a href="#abstract">Abstract</a>
+          <a href="#introduction">1. Introduction</a>
+          <a href="#methodology">2. Proposed Methodology</a>
+          <a href="#results">3. Results and Discussion</a>
+          <a href="#conclusion">4. Conclusion</a>
+          <a href="#references">References</a>
+        </div>
+        <div class="side-note">
+          <strong>Author's note</strong>
+          <p>This web version follows the supplied course project report. Figure placeholders and unrecorded result fields are intentionally identified for completion.</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <div><strong>Engineering Journal</strong><p>Student Research & Project Reports</p></div>
+      <div class="footer-right">BAECE339 · 2026–2027<br>School of Electronics Engineering</div>
+    </div>
+  </footer>
+  <button id="backToTop" class="back-top" aria-label="Back to top">↑</button>
+  <script src="script.js"></script>
+</body>
+</html>
